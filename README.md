@@ -80,6 +80,15 @@ sudo useradd -m -s /usr/sbin/nologin maria
 echo "maria:micontraseña" | sudo chpasswd
 ```
 
+> **¿Ya tienes un servidor NAS con Samba?** Los usuarios de Samba no tienen contraseña Linux ni directorio home por defecto. El script `setup_correo.sh` los detecta automáticamente y te ofrece habilitarlos para correo (crea el home y asigna contraseña Linux **sin tocar la contraseña de Samba**). También puedes hacerlo a mano para usuarios ya existentes:
+>
+> ```bash
+> # Habilitar usuario Samba existente (ej: santi) para correo
+> sudo mkdir -p /home/santi && sudo chown santi:santi /home/santi && sudo chmod 750 /home/santi
+> echo "santi:contraseña_correo" | sudo chpasswd
+> # La contraseña de Samba de santi NO cambia
+> ```
+
 **Cambiar la contraseña de un usuario:**
 ```bash
 echo "juan:nuevacontraseña" | sudo chpasswd

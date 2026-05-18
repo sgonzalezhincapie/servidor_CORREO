@@ -363,8 +363,19 @@ create_users() {
 
             if id "$username" &>/dev/null; then
                 warn "  El usuario '${username}' ya existe en el sistema."
+                # Detectar si es usuario de Samba sin contraseña Linux
+                local shadow_entry
+                shadow_entry=$(getent shadow "$username" 2>/dev/null | cut -d: -f2)
+                if [[ -z "$shadow_entry" || "$shadow_entry" == "!"* || "$shadow_entry" == "*" ]]; then
+                    warn "  Sin contraseña Linux (posiblemente es usuario de Samba)."
+                fi
+                if [[ ! -d "/home/${username}" ]]; then
+                    warn "  No tiene directorio home (/home/${username}/ no existe)."
+                fi
+                info "  Si confirmas [s]: se creará el home si falta y se asignará contraseña Linux."
+                info "  Su contraseña de Samba NO será modificada."
                 local reset_pass="n"
-                read -r -p "  ¿Deseas solo actualizar su contraseña? [s/N]: " reset_pass || true
+                read -r -p "  ¿Habilitar '${username}' para correo? [s/N]: " reset_pass || true
                 if [[ "$reset_pass" =~ ^[sS]$ ]]; then
                     break  # Salir del loop interno, ir a asignar contraseña
                 else
@@ -403,12 +414,19 @@ create_users() {
 
         [[ -z "$password" ]] && break
 
-        # ── Crear usuario (si no existe) ───────────────────────────
+        # ── Crear usuario (si no existe) o preparar usuario Samba existente ──
         if ! id "$username" &>/dev/null; then
-            # -m: crear directorio home obligatorio (para ~/Maildir/)
-            # -s /usr/sbin/nologin: sin acceso a shell del sistema
+            # Usuario nuevo: crear con home (-m) y sin shell por seguridad
             useradd -m -s /usr/sbin/nologin "$username"
             ok "  Usuario '${username}' creado con home en /home/${username}/"
+        elif [[ ! -d "/home/${username}" ]]; then
+            # Usuario existente (ej: Samba) sin directorio home.
+            # Sin home no puede existir ~/Maildir/ y Postfix no puede entregar correo.
+            mkdir -p "/home/${username}"
+            chown "${username}:${username}" "/home/${username}"
+            chmod 750 "/home/${username}"
+            ok "  Directorio home creado para '${username}': /home/${username}/"
+            info "  (La cuenta de Samba de '${username}' no se ve afectada)"
         fi
 
         # ── Asignar contraseña via chpasswd ────────────────────────
