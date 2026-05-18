@@ -1,0 +1,84 @@
+# ============================================================
+# .gitignore — Proyecto: Servidor de Correo de Laboratorio
+# Scripts Bash para Postfix + Dovecot en Ubuntu 22.04 LTS
+# ============================================================
+
+# ── Archivos de respaldo creados por editores de texto ──────
+*~
+*.swp
+*.swo
+*.bak
+*.orig
+*.save
+
+# ── Logs locales de depuración ───────────────────────────────
+*.log
+logs/
+/tmp/
+
+# ── Variables de entorno y credenciales locales ──────────────
+# NUNCA subas contraseñas, tokens ni IPs de producción
+.env
+.env.*
+.env.local
+.env.production
+secrets/
+credentials/
+*.secret
+*.credential
+
+# ── Claves privadas y certificados ───────────────────────────
+*.pem
+*.key
+*.crt
+*.p12
+*.pfx
+*.der
+id_rsa
+id_rsa.pub
+id_ed25519
+id_ed25519.pub
+id_ecdsa
+id_ecdsa.pub
+
+# ── Caché de Python (si hay scripts auxiliares .py) ──────────
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.cache/
+
+# ── Archivos temporales del sistema ──────────────────────────
+*.tmp
+.tmp/
+
+# ── macOS ─────────────────────────────────────────────────────
+.DS_Store
+.AppleDouble
+.LSOverride
+._*
+
+# ── Windows ───────────────────────────────────────────────────
+Thumbs.db
+desktop.ini
+$RECYCLE.BIN/
+
+# ── IDEs y editores ───────────────────────────────────────────
+.idea/
+.vscode/
+*.code-workspace
+*.sublime-project
+*.sublime-workspace
+
+# ── Salida de pruebas generada localmente ────────────────────
+test-output/
+test_*.log
+
+# ── Archivos de configuración locales del sistema ────────────
+# (copias de /etc que pudieran contener datos sensibles)
+*.cf.local
+*.conf.local
+
+# ── Garantiza que los scripts principales SIEMPRE se incluyan ─
+!setup_correo.sh
+!limpiar_correo.sh
