@@ -327,121 +327,123 @@ verify_services() {
         warn "No se pudo verificar los puertos. Usa manualmente: ss -tuln"
 }
 
-# ── Creación interactiva de usuarios de correo ────────────────────────────────
-# Los usuarios de correo son cuentas de usuario Linux estándar.
-# Se crean SIN shell del sistema (nologin) pero CON directorio home,
-# porque Maildir vive dentro del home: ~/Maildir/
+# ── Habilitación de usuarios NAS existentes para correo ──────────────────────
+# Los usuarios se crean en el servidor NAS (setup_servidor.sh).
+# Este paso solo necesita asignarles contraseña Linux y pre-crear Maildir.
+# La contraseña Samba (tdbsam) NO se ve afectada.
 create_users() {
-    step "PASO 6/6 — Registro de Usuarios de Correo"
+    step "PASO 6/6 — Habilitar usuarios existentes para correo"
 
-    echo -e "${YELLOW}Los usuarios del servidor de correo son cuentas de Linux.${NC}"
-    echo -e "${YELLOW}Se crean sin acceso a shell por seguridad, pero con directorio${NC}"
-    echo -e "${YELLOW}home para que Postfix pueda crear ~/Maildir/ automáticamente.${NC}"
+    echo -e "${YELLOW}El servidor de correo usa las cuentas Linux creadas por el servidor NAS.${NC}"
+    echo -e "${YELLOW}No es necesario crear usuarios nuevos aquí.${NC}"
     echo ""
 
-    local crear_mas="s"
-    while [[ "$crear_mas" =~ ^[sS]$ ]]; do
+    # ── Recopilar usuarios del sistema (uid >= 1000, sin nobody) ─────────────
+    local -a usuarios=()
+    while IFS=: read -r name _ uid _ _ _ _; do
+        [[ "$uid" -ge 1000 && "$name" != "nobody" ]] || continue
+        usuarios+=("$name")
+    done < /etc/passwd
 
-        echo -e "${BOLD}─── Nuevo usuario de correo ───────────────────────────────${NC}"
+    if [[ ${#usuarios[@]} -eq 0 ]]; then
+        warn "No se encontraron usuarios del sistema (uid >= 1000)."
+        warn "Despliega primero el servidor NAS (setup_servidor.sh) para crear los usuarios."
+        return
+    fi
 
-        # ── Solicitar nombre de usuario ────────────────────────────
-        local username=""
-        while true; do
-            read -r -p "  Nombre de usuario (letras/números, sin espacios): " username || break
-            username="${username,,}"  # convertir a minúsculas
+    # ── Tabla de estado ───────────────────────────────────────────────────────
+    echo -e "${BOLD}  Estado actual de usuarios:${NC}"
+    echo    "  ────────────────────────────────────────────────────────────"
+    printf  "  %-20s  %-16s  %-8s  %s\n" "Usuario" "Pass Linux" "Maildir" "Estado"
+    echo    "  ────────────────────────────────────────────────────────────"
 
-            if [[ -z "$username" ]]; then
-                warn "  El nombre no puede estar vacío."
-                continue
-            fi
+    local -a pendientes=()
+    for u in "${usuarios[@]}"; do
+        local home_dir shadow_entry pass_label maildir_label estado_label
+        home_dir=$(getent passwd "$u" | cut -d: -f6)
+        shadow_entry=$(getent shadow "$u" 2>/dev/null | cut -d: -f2)
 
-            if ! [[ "$username" =~ ^[a-z][a-z0-9_-]{0,30}$ ]]; then
-                warn "  Nombre inválido. Solo letras minúsculas, números, '-' o '_'."
-                warn "  Debe comenzar con una letra. Máximo 31 caracteres."
-                continue
-            fi
-
-            if id "$username" &>/dev/null; then
-                warn "  El usuario '${username}' ya existe en el sistema."
-                # Detectar si es usuario de Samba sin contraseña Linux
-                local shadow_entry
-                shadow_entry=$(getent shadow "$username" 2>/dev/null | cut -d: -f2)
-                if [[ -z "$shadow_entry" || "$shadow_entry" == "!"* || "$shadow_entry" == "*" ]]; then
-                    warn "  Sin contraseña Linux (posiblemente es usuario de Samba)."
-                fi
-                if [[ ! -d "/home/${username}" ]]; then
-                    warn "  No tiene directorio home (/home/${username}/ no existe)."
-                fi
-                info "  Si confirmas [s]: se creará el home si falta y se asignará contraseña Linux."
-                info "  Su contraseña de Samba NO será modificada."
-                local reset_pass="n"
-                read -r -p "  ¿Habilitar '${username}' para correo? [s/N]: " reset_pass || true
-                if [[ "$reset_pass" =~ ^[sS]$ ]]; then
-                    break  # Salir del loop interno, ir a asignar contraseña
-                else
-                    username=""
-                    continue
-                fi
-            fi
-
-            break
-        done
-
-        # Si el usuario salió del loop sin nombre (Ctrl+D), terminamos
-        [[ -z "$username" ]] && break
-
-        # ── Solicitar y confirmar contraseña ───────────────────────
-        local password="" password_confirm=""
-        while true; do
-            read -r -s -p "  Contraseña para '${username}': " password || break
-            echo ""
-
-            if [[ ${#password} -lt 4 ]]; then
-                warn "  La contraseña debe tener al menos 4 caracteres."
-                continue
-            fi
-
-            read -r -s -p "  Confirmar contraseña: " password_confirm || break
-            echo ""
-
-            if [[ "$password" != "$password_confirm" ]]; then
-                warn "  Las contraseñas no coinciden. Intenta de nuevo."
-                continue
-            fi
-
-            break
-        done
-
-        [[ -z "$password" ]] && break
-
-        # ── Crear usuario (si no existe) o preparar usuario Samba existente ──
-        if ! id "$username" &>/dev/null; then
-            # Usuario nuevo: crear con home (-m) y sin shell por seguridad
-            useradd -m -s /usr/sbin/nologin "$username"
-            ok "  Usuario '${username}' creado con home en /home/${username}/"
-        elif [[ ! -d "/home/${username}" ]]; then
-            # Usuario existente (ej: Samba) sin directorio home.
-            # Sin home no puede existir ~/Maildir/ y Postfix no puede entregar correo.
-            mkdir -p "/home/${username}"
-            chown "${username}:${username}" "/home/${username}"
-            chmod 750 "/home/${username}"
-            ok "  Directorio home creado para '${username}': /home/${username}/"
-            info "  (La cuenta de Samba de '${username}' no se ve afectada)"
+        if [[ -n "$shadow_entry" && "$shadow_entry" != "!"* && "$shadow_entry" != "*" ]]; then
+            pass_label="si"
+        else
+            pass_label="no (bloqueada)"
+            pendientes+=("$u")
         fi
 
-        # ── Asignar contraseña via chpasswd ────────────────────────
-        # chpasswd lee "usuario:contraseña" desde stdin
-        printf '%s:%s\n' "$username" "$password" | chpasswd
-        ok "  Contraseña asignada a '${username}'."
-        info "  Buzón de correo: /home/${username}/Maildir/  (se crea al recibir el primer correo)"
-        info "  Dirección de correo: ${username}@lab.local"
-        echo ""
+        if [[ -d "${home_dir}/Maildir" ]]; then
+            maildir_label="si"
+        else
+            maildir_label="no"
+        fi
 
-        read -r -p "  ¿Deseas registrar otro usuario? [s/N]: " crear_mas || break
+        if [[ "$pass_label" == "si" ]]; then
+            estado_label="${GREEN}listo${NC}"
+        else
+            estado_label="${YELLOW}pendiente${NC}"
+        fi
+
+        printf "  %-20s  %-16s  %-8s  " "$u" "$pass_label" "$maildir_label"
+        echo -e "$estado_label"
+    done
+    echo "  ────────────────────────────────────────────────────────────"
+    echo ""
+
+    if [[ ${#pendientes[@]} -eq 0 ]]; then
+        ok "Todos los usuarios ya están habilitados para correo."
+        return
+    fi
+
+    info "Usuarios pendientes: ${pendientes[*]}"
+    info "La contraseña Linux es independiente de la contraseña Samba (NAS sin cambios)."
+    echo ""
+
+    # ── Habilitar los pendientes uno a uno ───────────────────────────────────
+    for u in "${pendientes[@]}"; do
+        local resp="n"
+        read -r -p "  ¿Habilitar '${u}' para correo? [s/N]: " resp || continue
+        [[ "$resp" =~ ^[sS]$ ]] || continue
+
+        local password="" password_confirm=""
+        while true; do
+            read -r -s -p "  Contraseña Linux para '${u}': " password || break
+            echo ""
+            if [[ ${#password} -lt 4 ]]; then
+                warn "  Mínimo 4 caracteres."
+                continue
+            fi
+            read -r -s -p "  Confirmar contraseña: " password_confirm || break
+            echo ""
+            if [[ "$password" == "$password_confirm" ]]; then
+                break
+            fi
+            warn "  Las contraseñas no coinciden. Intenta de nuevo."
+        done
+
+        [[ -z "$password" ]] && continue
+
+        local home_dir
+        home_dir=$(getent passwd "$u" | cut -d: -f6)
+
+        # Asegurar home (puede faltar en usuarios Samba creados sin -m)
+        if [[ ! -d "$home_dir" ]]; then
+            mkdir -p "$home_dir"
+            chown "${u}:${u}" "$home_dir"
+            chmod 750 "$home_dir"
+            ok "  Home creado: ${home_dir}"
+        fi
+
+        # Asignar contraseña Linux — no toca tdbsam de Samba
+        printf '%s:%s\n' "$u" "$password" | chpasswd
+        ok "  Contraseña asignada a '${u}'.  (Samba sin cambios)"
+
+        # Pre-crear estructura Maildir
+        su -s /bin/sh "$u" -c "mkdir -p ~/Maildir/{cur,new,tmp}" 2>/dev/null || true
+        ok "  Maildir: ${home_dir}/Maildir/"
+        info "  Dirección de correo: ${u}@lab.local"
         echo ""
     done
 
-    ok "Proceso de registro de usuarios completado."
+    ok "Habilitación de usuarios completada."
 }
 
 # ── Resumen final ─────────────────────────────────────────────────────────────
