@@ -64,26 +64,36 @@ check_ubuntu() {
     fi
 }
 
-# ── Detección dinámica de la subred local ──────────────────────────────────────
-# Obtiene la primera ruta de red local (excluye loopback y default gateway)
-# Ejemplo de resultado: "192.168.1.0/24"
+# ── Detección dinámica de subredes locales ────────────────────────────────────
+# Obtiene TODAS las rutas de red directamente conectadas (excluye loopback y
+# default gateway). Devuelve las subredes separadas por espacio.
+# Ejemplo de resultado: "10.253.62.0/24 10.253.25.0/24"
+#
+# NOTA: En entornos universitarios o con múltiples VLANs, distintas subredes
+# pueden conectarse al servidor a través del mismo router. Si los clientes
+# provienen de subredes no directamente conectadas al servidor, agrégalas
+# manualmente a mynetworks en /etc/postfix/main.cf después de la instalación:
+#   sudo postconf -e "mynetworks = 127.0.0.0/8 10.253.0.0/16"
+#   sudo systemctl reload postfix
 detect_subnet() {
-    local subnet
-    subnet=$(ip route 2>/dev/null \
+    local subnets
+    subnets=$(ip route 2>/dev/null \
         | grep -v default \
         | grep -v 127 \
         | grep -E '^[0-9]+\.' \
         | awk '{print $1}' \
-        | head -n1)
+        | sort -u \
+        | tr '\n' ' ' \
+        | sed 's/ $//')
 
-    if [[ -z "$subnet" ]]; then
-        warn "No se pudo detectar la subred local automáticamente."
+    if [[ -z "$subnets" ]]; then
+        warn "No se pudo detectar ninguna subred local automáticamente."
         warn "mynetworks solo incluirá 127.0.0.0/8 (solo loopback)."
         warn "Los clientes de la red local no podrán enviar correo."
         warn "Puedes corregirlo después editando: /etc/postfix/main.cf"
         echo ""
     else
-        echo "$subnet"
+        echo "$subnets"
     fi
 }
 
@@ -115,15 +125,23 @@ configure_postfix() {
     step "PASO 2/6 — Configurando Postfix (main.cf)"
 
     local local_subnet="$1"
-    local mynetworks="127.0.0.0/8"
+
+    # Redes fijas que siempre deben estar permitidas:
+    #   10.253.0.0/16  → red de la universidad (distintas VLANs/aulas)
+    #   172.16.36.0/24 → red local del laboratorio (IP estática 172.16.36.82)
+    local fixed_networks="10.253.0.0/16 172.16.36.0/24"
+    local mynetworks="127.0.0.0/8 ${fixed_networks}"
 
     if [[ -n "$local_subnet" ]]; then
-        mynetworks="127.0.0.0/8 ${local_subnet}"
-        info "Subred local detectada: ${local_subnet}"
-        ok "mynetworks = ${mynetworks}"
+        for sn in $local_subnet; do
+            [[ "$mynetworks" =~ $sn ]] || mynetworks="${mynetworks} ${sn}"
+        done
+        info "Subredes locales detectadas: ${local_subnet}"
     else
-        warn "mynetworks = ${mynetworks} (solo loopback, subred no detectada)"
+        warn "No se detectaron subredes adicionales automáticamente."
     fi
+
+    ok "mynetworks = ${mynetworks}"
 
     info "Aplicando directivas con postconf -e..."
 
