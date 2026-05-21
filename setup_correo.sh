@@ -98,9 +98,15 @@ detect_subnet() {
 }
 
 # ── Instalación silenciosa de paquetes ────────────────────────────────────────
-# Usa debconf-set-selections para evitar ventanas emergentes de configuración
+# Usa debconf-set-selections para evitar ventanas emergentes de configuración.
+# Si existe paquetes/correo/*.deb, instala en modo OFFLINE con dpkg.
+# De lo contrario, descarga desde internet con apt-get.
 install_packages() {
     step "PASO 1/6 — Instalando Postfix y Dovecot"
+
+    local SCRIPT_DIR
+    SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+    local PAQUETES_DIR="${SCRIPT_DIR}/paquetes/correo"
 
     info "Preconfigurando respuestas de debconf (instalación silenciosa)..."
     debconf-set-selections << 'DEBCONF'
@@ -108,11 +114,18 @@ postfix postfix/mailname string mail.lab.local
 postfix postfix/main_mailer_type select Internet Site
 DEBCONF
 
-    info "Actualizando índice de paquetes..."
-    DEBIAN_FRONTEND=noninteractive apt-get update -qq
+    if ls "$PAQUETES_DIR"/*.deb &>/dev/null 2>&1; then
+        local NUM_DEBS
+        NUM_DEBS=$(ls "$PAQUETES_DIR"/*.deb | wc -l)
+        info "Modo OFFLINE: usando ${NUM_DEBS} paquetes locales desde paquetes/correo/"
+        DEBIAN_FRONTEND=noninteractive dpkg -i "$PAQUETES_DIR"/*.deb 2>&1 | tail -5 || true
+    else
+        info "Actualizando índice de paquetes..."
+        DEBIAN_FRONTEND=noninteractive apt-get update -qq
 
-    info "Instalando postfix y dovecot-imapd..."
-    DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postfix dovecot-imapd
+        info "Instalando postfix y dovecot-imapd..."
+        DEBIAN_FRONTEND=noninteractive apt-get install -y -qq postfix dovecot-imapd
+    fi
 
     ok "Paquetes instalados correctamente."
     info "Versiones instaladas:"
