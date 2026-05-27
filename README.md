@@ -18,6 +18,7 @@ servidor_CORREO/
 ├── README.md            # Esta guía
 ├── setup_correo.sh      # Instalador automático
 └── limpiar_correo.sh    # Desinstalador completo
+└── descargar_paquetes.sh    # Descarga los paquetes necesarios (Importante para cuando vayas a desplegar en un entorno sin conexión a internet)
 ```
 
 ---
