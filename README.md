@@ -29,10 +29,15 @@ servidor_CORREO/
 ```bash
 git clone https://github.com/TU_USUARIO/servidor_CORREO.git
 cd servidor_CORREO
-chmod +x setup_correo.sh limpiar_correo.sh
+chmod +x setup_correo.sh limpiar_correo.sh descargar_paquetes.sh
 ```
 
-### Paso 2 · Ejecutar el instalador
+### Paso 2 - Descargar los paquetes necesarios
+```bash
+sudo bash descargar_paquetes.sh
+```
+
+### Paso 3 · Ejecutar el instalador
 
 ```bash
 sudo bash setup_correo.sh
